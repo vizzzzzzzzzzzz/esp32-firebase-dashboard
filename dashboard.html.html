@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ESP32 Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet"/>
+
+  <!-- Firebase SDKs (compat mode) -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+  <style>
+    :root {
+      --bg:        #080c10;
+      --panel:     #0d1318;
+      --border:    #1a2a35;
+      --cyan:      #00e5ff;
+      --green:     #00ff9d;
+      --amber:     #ffaa00;
+      --red:       #ff3d5a;
+      --text:      #c8dde8;
+      --dim:       #3a5060;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Rajdhani', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+      background-image:
+        radial-gradient(ellipse 80% 40% at 50% -10%, rgba(0,229,255,0.07) 0%, transparent 70%),
+        linear-gradient(180deg, #080c10 0%, #060a0e 100%);
+    }
+
+    /* HEADER */
+    header {
+      width: 100%;
+      max-width: 860px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 48px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 1rem;
+      color: var(--cyan);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--dim);
+      display: inline-block;
+      margin-right: 8px;
+      transition: background 0.4s, box-shadow 0.4s;
+    }
+    .status-dot.live {
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .status-label {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--dim);
+      letter-spacing: 0.1em;
+    }
+    .status-label.live { color: var(--green); }
+
+    /* GRID */
+    .grid {
+      width: 100%;
+      max-width: 860px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 560px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    /* CARD */
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 28px 28px 24px;
+      position: relative;
+      overflow: hidden;
+      animation: fadeUp 0.6s both;
+    }
+    .card:nth-child(2) { animation-delay: 0.1s; }
+    .card:nth-child(3) { animation-delay: 0.2s; }
+    .card:nth-child(4) { animation-delay: 0.3s; }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent, var(--cyan)), transparent);
+    }
+
+    .card-label {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.65rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--dim);
+      margin-bottom: 20px;
+    }
+
+    /* SENSOR VALUE */
+    .sensor-value {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 3.2rem;
+      line-height: 1;
+      color: var(--accent, var(--cyan));
+      text-shadow: 0 0 20px var(--accent, var(--cyan));
+      transition: color 0.3s, text-shadow 0.3s;
+    }
+
+    .sensor-unit {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 1rem;
+      color: var(--dim);
+      margin-left: 6px;
+    }
+
+    .sensor-bar {
+      margin-top: 18px;
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .sensor-bar-fill {
+      height: 100%;
+      background: var(--accent, var(--cyan));
+      box-shadow: 0 0 8px var(--accent, var(--cyan));
+      width: 0%;
+      transition: width 1s ease;
+    }
+
+    /* LIGHT CARD */
+    .light-card { --accent: var(--amber); }
+    .light-card.on { --accent: var(--green); }
+
+    .light-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
+
+    .light-name {
+      font-size: 1.4rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--text);
+    }
+
+    .light-state {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.7rem;
+      letter-spacing: 0.15em;
+      color: var(--dim);
+      margin-top: 4px;
+      transition: color 0.3s;
+    }
+    .light-state.on { color: var(--green); }
+
+    /* TOGGLE */
+    .toggle {
+      position: relative;
+      width: 56px;
+      height: 28px;
+      cursor: pointer;
+    }
+    .toggle input { display: none; }
+    .toggle-track {
+      width: 100%;
+      height: 100%;
+      background: var(--border);
+      border-radius: 14px;
+      border: 1px solid var(--dim);
+      transition: background 0.3s, border-color 0.3s, box-shadow 0.3s;
+    }
+    .toggle input:checked ~ .toggle-track {
+      background: rgba(0,255,157,0.15);
+      border-color: var(--green);
+      box-shadow: 0 0 12px rgba(0,255,157,0.3);
+    }
+    .toggle-thumb {
+      position: absolute;
+      top: 4px; left: 4px;
+      width: 20px; height: 20px;
+      background: var(--dim);
+      border-radius: 50%;
+      transition: transform 0.3s, background 0.3s, box-shadow 0.3s;
+    }
+    .toggle input:checked ~ .toggle-thumb {
+      transform: translateX(28px);
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+    }
+
+    /* LIGHT GLOW EFFECT */
+    .bulb-icon {
+      font-size: 2.4rem;
+      margin-bottom: 12px;
+      filter: grayscale(1) brightness(0.4);
+      transition: filter 0.4s;
+    }
+    .light-card.on .bulb-icon {
+      filter: grayscale(0) brightness(1.2) drop-shadow(0 0 10px var(--green));
+    }
+
+    /* FOOTER */
+    footer {
+      margin-top: 48px;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 0.65rem;
+      color: var(--dim);
+      letter-spacing: 0.15em;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">⬡ ESP32 · CTRL</div>
+  <div>
+    <span class="status-dot" id="statusDot"></span>
+    <span class="status-label" id="statusLabel">CONNECTING</span>
+  </div>
+</header>
+
+<div class="grid">
+
+  <!-- TEMPERATURE CARD -->
+  <div class="card" style="--accent: var(--cyan)">
+    <div class="card-label">// temperature</div>
+    <div>
+      <span class="sensor-value" id="tempVal">--</span>
+      <span class="sensor-unit">°C</span>
+    </div>
+    <div class="sensor-bar"><div class="sensor-bar-fill" id="tempBar"></div></div>
+  </div>
+
+  <!-- HUMIDITY CARD -->
+  <div class="card" style="--accent: var(--amber)">
+    <div class="card-label">// humidity</div>
+    <div>
+      <span class="sensor-value" id="humVal">--</span>
+      <span class="sensor-unit">%</span>
+    </div>
+    <div class="sensor-bar"><div class="sensor-bar-fill" id="humBar"></div></div>
+  </div>
+
+  <!-- LIGHT 1 CARD -->
+  <div class="card light-card" id="card1">
+    <div class="card-label">// light · 01</div>
+    <div class="bulb-icon" id="bulb1">💡</div>
+    <div class="light-row">
+      <div>
+        <div class="light-name">Light 1</div>
+        <div class="light-state" id="state1">OFFLINE</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="toggle1" onchange="setLight('light1', this.checked)"/>
+        <div class="toggle-track"></div>
+        <div class="toggle-thumb"></div>
+      </label>
+    </div>
+  </div>
+
+  <!-- LIGHT 2 CARD -->
+  <div class="card light-card" id="card2">
+    <div class="card-label">// light · 02</div>
+    <div class="bulb-icon" id="bulb2">💡</div>
+    <div class="light-row">
+      <div>
+        <div class="light-name">Light 2</div>
+        <div class="light-state" id="state2">OFFLINE</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="toggle2" onchange="setLight('light2', this.checked)"/>
+        <div class="toggle-track"></div>
+        <div class="toggle-thumb"></div>
+      </label>
+    </div>
+  </div>
+
+</div>
+
+<footer>FIREBASE REALTIME DB · ESP32 · DHT11</footer>
+
+<script>
+  // =============================================
+  //  PASTE YOUR FIREBASE CONFIG HERE
+  // =============================================
+  const firebaseConfig = {
+    apiKey: "AIzaSyCQDYCXOkX-vVU1Dz5CQ_A8G7CbH4iKhkA",
+    authDomain: "test-a91ac.firebaseapp.com",
+    databaseURL: "https://test-a91ac-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "test-a91ac",
+    storageBucket: "test-a91ac.firebasestorage.app",
+    messagingSenderId: "996939417035",
+    appId: "1:996939417035:web:2d9d786f7f26166f0e224e"
+  };
+  // =============================================
+
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  // --- STATUS INDICATOR ---
+  function setLive() {
+    document.getElementById('statusDot').classList.add('live');
+    const lbl = document.getElementById('statusLabel');
+    lbl.textContent = 'LIVE';
+    lbl.classList.add('live');
+  }
+
+  // --- TEMPERATURE ---
+  db.ref('/sensor/temperature').on('value', snap => {
+    const val = snap.val();
+    if (val !== null) {
+      document.getElementById('tempVal').textContent = val.toFixed(1);
+      document.getElementById('tempBar').style.width = Math.min(val / 50 * 100, 100) + '%';
+      setLive();
+    }
+  });
+
+  // --- HUMIDITY ---
+  db.ref('/sensor/humidity').on('value', snap => {
+    const val = snap.val();
+    if (val !== null) {
+      document.getElementById('humVal').textContent = val.toFixed(1);
+      document.getElementById('humBar').style.width = Math.min(val, 100) + '%';
+    }
+  });
+
+  // --- LIGHT 1 ---
+  db.ref('/lights/light1').on('value', snap => {
+    const on = snap.val();
+    document.getElementById('toggle1').checked = on;
+    updateLightUI(1, on);
+  });
+
+  // --- LIGHT 2 ---
+  db.ref('/lights/light2').on('value', snap => {
+    const on = snap.val();
+    document.getElementById('toggle2').checked = on;
+    updateLightUI(2, on);
+  });
+
+  // --- UPDATE LIGHT UI ---
+  function updateLightUI(num, on) {
+    const card  = document.getElementById('card' + num);
+    const state = document.getElementById('state' + num);
+    if (on) {
+      card.classList.add('on');
+      state.textContent = 'ON';
+      state.classList.add('on');
+    } else {
+      card.classList.remove('on');
+      state.textContent = 'OFF';
+      state.classList.remove('on');
+    }
+  }
+
+  // --- WRITE LIGHT STATE TO FIREBASE ---
+  function setLight(path, value) {
+    db.ref('/lights/' + path).set(value);
+  }
+</script>
+
+</body>
+</html>
